@@ -68,7 +68,47 @@ Crédito requerido por el modelo:
 
 ## Física
 
-El personaje utiliza una cápsula y colisiones mediante `Octree` de Three.js. El escenario también se convierte a un `Trimesh` estático de cannon-es para que las cajas dinámicas choquen contra calles, paredes y edificios. Los proyectiles detectan impactos contra el escenario y aplican impulsos a las cajas.
+El personaje utiliza una cápsula y colisiones mediante `Octree` de Three.js.
+
+Las cajas dinámicas y la torre de bloques usan `cannon-es`. Aquí hay un detalle
+importante de la librería: **cannon-es no implementa la colisión Box↔Trimesh**
+(en `Narrowphase` solo existen `sphereTrimesh` y `planeTrimesh`; la entrada
+`convexTrimesh` está comentada en el propio código). Es decir, convertir el
+escenario a un `Trimesh` no detiene a las cajas: lo atraviesan.
+
+Por eso `StaticPhysicsBuilder.buildBoxColliders()` genera un `CANNON.Box`
+estático por cada mesh del escenario a partir de su caja envolvente. Box↔Box sí
+está soportado, así que las cajas chocan con la calle, los muros y los
+edificios. La aproximación es la caja envolvente de cada mesh, de modo que un
+edificio es sólido por completo para las cajas.
+
+El `Trimesh` queda desactivado en `world.trimeshCollider` porque solo serviría
+para cuerpos de esfera, y en este proyecto no hay ninguno.
+
+## Torre de bloques derribable
+
+`BlockTower` construye una torre de 16 bloques en 5 niveles (4-4-3-3-2). Cada
+bloque tiene su propia `BoxGeometry` y su propio cuerpo dinámico: cae, gira y
+choca de forma independiente. No hay animación de caída, todo sale de la
+simulación.
+
+Se configura entera desde `tower` en `assets/js/config.js`:
+
+- `offsetFromSpawn` / `position`: dónde se coloca. La altura se calcula sola
+  buscando el suelo real y comprobando que el volumen no choque con un edificio.
+- `rows`: bloques por nivel, de abajo hacia arriba.
+- `impactDeltaV`, `blastRadius`, `forwardShare`: fuerza de los disparos.
+
+El impacto se reparte como onda expansiva con caída lineal en lugar de
+concentrarse en el bloque tocado: un impulso único no movía los bloques
+cargados de la base y lanzaba a más de 200 m los libres de la cima.
+
+## Arma
+
+La potencia se ajusta en `projectiles` de `assets/js/config.js`: `speed` para la
+velocidad de la bala, `gravity` para su caída, `cooldownMs` para la cadencia.
+El avance de cada bala se subdivide en tramos menores que su radio, así que
+subir `speed` no hace que atraviese los bloques.
 
 ## Estructura relevante
 

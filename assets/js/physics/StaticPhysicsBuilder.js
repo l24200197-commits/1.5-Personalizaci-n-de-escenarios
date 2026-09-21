@@ -1,9 +1,60 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
-// Convierte todos los triángulos del escenario visual en un único collider estático.
-// Así las cajas de cannon-es chocan contra calles, banquetas, edificios y objetos.
+// Física estática del escenario.
+//
+// IMPORTANTE: cannon-es NO implementa la colisión Box<->Trimesh (la entrada
+// 'convexTrimesh' está comentada en la propia librería; solo existen
+// sphereTrimesh y planeTrimesh). Por eso el Trimesh del escenario no detiene a
+// las cajas dinámicas: lo atraviesan.
+//
+// La solución es buildBoxColliders(): un CANNON.Box estático por cada mesh del
+// escenario, a partir de su caja envolvente en el mundo. Box<->Box sí está
+// soportado, así que las cajas chocan con la calle, los edificios y los muros.
 export class StaticPhysicsBuilder {
+  /**
+   * Genera un colisionador de caja estático por mesh del escenario.
+   * Devuelve los cuerpos creados y sus cajas en coordenadas de mundo, que
+   * sirven además para comprobar si un sitio está libre antes de colocar algo.
+   */
+  static buildBoxColliders(sceneRoot, physicsWorld, options = {}) {
+    const { material = null, minThickness = 0.04 } = options;
+    sceneRoot.updateWorldMatrix(true, true);
+
+    const bodies = [];
+    const boxes = [];
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+
+    sceneRoot.traverse((object) => {
+      if (!object.isMesh || !object.geometry?.attributes?.position) return;
+
+      if (!object.geometry.boundingBox) object.geometry.computeBoundingBox();
+      const worldBox = object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld);
+      worldBox.getSize(size);
+      worldBox.getCenter(center);
+
+      // Un mesh degenerado produciría una caja de grosor cero.
+      const half = new CANNON.Vec3(
+        Math.max(size.x / 2, minThickness),
+        Math.max(size.y / 2, minThickness),
+        Math.max(size.z / 2, minThickness)
+      );
+
+      const body = new CANNON.Body({ mass: 0 });
+      if (material) body.material = material;
+      body.addShape(new CANNON.Box(half));
+      body.position.set(center.x, center.y, center.z);
+      physicsWorld.addBody(body);
+
+      bodies.push(body);
+      boxes.push(worldBox);
+    });
+
+    console.info(`Colisionadores del escenario: ${bodies.length} cajas estáticas.`);
+    return { bodies, boxes };
+  }
+
   static buildTrimesh(sceneRoot, physicsWorld) {
     sceneRoot.updateWorldMatrix(true, true);
 

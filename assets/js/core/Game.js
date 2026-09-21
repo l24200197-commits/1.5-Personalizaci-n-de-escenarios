@@ -84,7 +84,18 @@ export class Game {
         if (child.material?.map) child.material.map.anisotropy = 4;
       });
 
-      this.staticPhysicsBody = StaticPhysicsBuilder.buildTrimesh(this.level, this.physicsWorld);
+      // Colisionadores de caja: son los que realmente detienen a las cajas
+      // dinámicas, porque cannon-es no resuelve Box<->Trimesh.
+      const colliders = StaticPhysicsBuilder.buildBoxColliders(this.level, this.physicsWorld);
+      this.levelColliderBoxes = colliders.boxes;
+
+      // El Trimesh solo sirve para cuerpos de esfera, y este proyecto no tiene
+      // ninguno: el jugador usa Octree y los proyectiles son esferas propias,
+      // no cuerpos de cannon. Construirlo cuesta varios cientos de miles de
+      // triángulos a cambio de nada, así que queda desactivado por defecto.
+      if (this.config.world.trimeshCollider) {
+        this.staticPhysicsBody = StaticPhysicsBuilder.buildTrimesh(this.level, this.physicsWorld);
+      }
     } catch (error) {
       this.setLoading(error.message, true);
       throw error;
@@ -97,7 +108,7 @@ export class Game {
 
     this._placePlayerOnGround();
 
-    this.boxes = new DynamicBoxes(this.scene, this.physicsWorld, this.config.dynamicBoxes);
+    this.boxes = new DynamicBoxes(this.scene, this.physicsWorld, this._resolveBoxesConfig());
     this.player.setDynamicBoxes(this.boxes);
     this.projectiles = new ProjectileSystem(this.scene, this.worldOctree, this.boxes, this.config.projectiles);
 
@@ -133,7 +144,7 @@ export class Game {
    * punto está dentro de un edificio (sin altura libre encima), prueba puntos
    * cercanos en espiral. Devuelve el punto sobre el suelo o null.
    */
-  _findGroundPoint(x, z, options = {}) {
+  _findGroundPoint(x, z, options = {}, clearance = null) {
     if (!this.level) return null;
 
     const rayHeight = options.rayHeight ?? 40;
@@ -162,9 +173,53 @@ export class Game {
       const headroom = hits.length > 1 ? hits[1].point.y - ground.point.y : Infinity;
       if (headroom < minHeadroom) continue;
 
-      return new THREE.Vector3(origin.x, ground.point.y, origin.z);
+      const point = new THREE.Vector3(origin.x, ground.point.y, origin.z);
+      // El rayo mide hueco libre sobre el suelo, pero los colisionadores son
+      // cajas envolventes: una esquina en L puede cubrir calle despejada. Si el
+      // volumen que se va a ocupar choca con uno, este sitio no sirve.
+      if (clearance && this._isBlocked(point, clearance)) continue;
+
+      return point;
     }
     return null;
+  }
+
+  /**
+   * Busca un sitio despejado para las cajas sueltas. Ahora que los edificios
+   * son colisionadores sólidos, nacer dentro de uno las lanzaría por los aires.
+   */
+  _resolveBoxesConfig() {
+    const config = { ...this.config.dynamicBoxes };
+    const [ox, , oz] = config.origin;
+    const columns = 4;
+    const spot = this._findGroundPoint(
+      ox, oz,
+      { rayHeight: 40, minHeadroom: 2.5, searchRadius: 6 },
+      {
+        width: columns * (config.size + 0.06) + 0.4,
+        depth: config.size + 0.4,
+        height: Math.ceil(config.count / columns) * (config.size + 0.04) + 0.3,
+      }
+    );
+    if (spot) config.origin = [spot.x, spot.y + 0.05, spot.z];
+    return config;
+  }
+
+  /** ¿Choca el volumen pedido con algún colisionador sólido del escenario? */
+  _isBlocked(point, clearance) {
+    if (!this.levelColliderBoxes?.length) return false;
+
+    const candidate = new THREE.Box3(
+      new THREE.Vector3(point.x - clearance.width / 2, point.y + 0.1, point.z - clearance.depth / 2),
+      new THREE.Vector3(point.x + clearance.width / 2, point.y + clearance.height, point.z + clearance.depth / 2)
+    );
+
+    for (const box of this.levelColliderBoxes) {
+      // Las cajas planas son suelo (calle, banqueta): no estorban.
+      if (box.max.y - box.min.y < 0.4) continue;
+      if (box.intersectsBox(candidate)) return true;
+    }
+    return false;
   }
 
   _placePlayerOnGround() {
@@ -211,7 +266,14 @@ export class Game {
       baseZ = sz + oz;
     }
 
-    const ground = this._findGroundPoint(baseX, baseZ, options);
+    const widest = Math.max(...options.rows);
+    const clearance = {
+      width: widest * options.blockWidth + (widest - 1) * options.spacing + 0.6,
+      depth: options.blockDepth + 0.6,
+      height: options.rows.length * (options.blockHeight + options.verticalSpacing) + 0.3,
+    };
+
+    const ground = this._findGroundPoint(baseX, baseZ, options, clearance);
     if (!ground) {
       console.warn('No se encontró un sitio despejado para la torre; no se creó.');
       return;

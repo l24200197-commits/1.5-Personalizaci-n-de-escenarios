@@ -8,6 +8,11 @@ export const GAME_CONFIG = {
   },
   world: {
     fallbackFloorY: -2.2,
+    // El Trimesh del escenario solo colisiona con esferas y planos de cannon-es;
+    // no detiene cajas. Como aquí no hay cuerpos de esfera, construirlo son
+    // cientos de miles de triángulos por nada. Actívalo solo si algún día se
+    // agregan cuerpos esféricos reales.
+    trimeshCollider: false,
   },
   player: {
     walkSpeed: 5.5,
@@ -56,10 +61,17 @@ export const GAME_CONFIG = {
   projectiles: {
     poolSize: 45,
     radius: 0.11,
-    speed: 31,
-    gravity: 15,
+    // Potencia del arma. Más velocidad = trayectoria más tensa, menos caída y
+    // más pegada. El sistema subdivide el avance para que la bala no atraviese
+    // un bloque por ir rápido, así que se puede subir con seguridad.
+    speed: 52,
+    // Caída de la bala. Bajarla estira todavía más la trayectoria.
+    gravity: 11,
     lifetime: 5,
-    cooldownMs: 240,
+    // Cadencia en milisegundos entre disparos.
+    cooldownMs: 190,
+    // Energía que conserva al rebotar contra el escenario.
+    bounce: 0.35,
   },
   tower: {
     enabled: true,
@@ -93,7 +105,7 @@ export const GAME_CONFIG = {
     // blastRadius con caída lineal. Subir impactDeltaV o blastRadius para
     // derribarla más fácil; bajarlos para que cueste más.
     // Cambio de velocidad (m/s) que recibe un bloque en el centro del impacto.
-    impactDeltaV: 11,
+    impactDeltaV: 16,
     // Radio de la onda en metros.
     blastRadius: 1.25,
     // Reparto entre la dirección del proyectil (1) y la radial desde el

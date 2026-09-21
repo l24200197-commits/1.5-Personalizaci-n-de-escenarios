@@ -59,28 +59,40 @@ export class ProjectileSystem {
         continue;
       }
 
-      p.collider.center.addScaledVector(p.velocity, dt);
       p.velocity.y -= this.config.gravity * dt;
 
-      // El proyectil se consume al impactar. Antes solo se frenaba, así que
-      // seguía dentro de la caja y le aplicaba un impulso nuevo en cada
-      // subpaso, multiplicando la fuerza real del disparo.
+      // Antitúnel: con la bala rápida, un solo paso la desplaza más que su
+      // propio diámetro y podría atravesar un bloque sin llegar a tocarlo.
+      // El avance se reparte en tramos no mayores que su radio.
+      const travel = p.velocity.length() * dt;
+      const steps = Math.max(1, Math.ceil(travel / (p.collider.radius * 0.8)));
+      const stepDt = dt / steps;
+
       let consumed = false;
-      for (const target of this.impactTargets) {
-        if (target.applyProjectileImpact(p.collider.center, p.velocity, p.collider.radius)) {
-          consumed = true;
-          break;
+      for (let s = 0; s < steps; s++) {
+        p.collider.center.addScaledVector(p.velocity, stepDt);
+
+        // El proyectil se consume al impactar. Antes solo se frenaba, así que
+        // seguía dentro de la caja y le aplicaba un impulso nuevo en cada
+        // subpaso, multiplicando la fuerza real del disparo.
+        for (const target of this.impactTargets) {
+          if (target.applyProjectileImpact(p.collider.center, p.velocity, p.collider.radius)) {
+            consumed = true;
+            break;
+          }
+        }
+        if (consumed) break;
+
+        const hit = this.worldOctree.sphereIntersect(p.collider);
+        if (hit) {
+          p.collider.center.add(hit.normal.clone().multiplyScalar(hit.depth));
+          p.velocity.reflect(hit.normal).multiplyScalar(this.config.bounce);
         }
       }
+
       if (consumed) {
         this._deactivate(p);
         continue;
-      }
-
-      const hit = this.worldOctree.sphereIntersect(p.collider);
-      if (hit) {
-        p.collider.center.add(hit.normal.clone().multiplyScalar(hit.depth));
-        p.velocity.reflect(hit.normal).multiplyScalar(0.35);
       }
 
       p.mesh.position.copy(p.collider.center);
