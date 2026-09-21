@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <meta name="description" content="Demo Web 3D interactiva con Three.js, personaje, colisiones, proyectiles y física." />
+  <title>Urban Physics 3D | Three.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./assets/css/styles.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="hud">
+    <section id="info">
+      <h1>Urban Physics 3D</h1>
+      <p><span class="key">WASD</span> Movimiento</p>
+      <p><span class="key">SHIFT</span> Correr &nbsp; <span class="key">SPACE</span> Saltar</p>
+      <p><span class="key">MOUSE</span> Cámara &nbsp; <span class="key">CLIC</span> Disparar</p>
+      <p><span class="key">RUEDA</span> Zoom &nbsp; <span class="key">ESC</span> Liberar mouse</p>
+      <p class="status-note">Ciudad y arma reales integradas · personaje provisional</p>
+    </section>
+    <div id="loading">Preparando escenario...</div>
+    <div id="crosshair"></div>
+    <div id="credits">
+      <span class="credits-name">José Alonso Godínez Franco</span>
+      <span class="credits-school">Instituto Tecnológico de Pachuca</span>
+    </div>
+  </div>
+  <div id="container"></div>
+  <script type="module" src="./assets/js/main.js"></script>
+</body>
+</html>

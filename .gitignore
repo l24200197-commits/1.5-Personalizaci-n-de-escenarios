@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Dependencias y builds
+node_modules/
+dist/
+build/
+
+# Credenciales y variables de entorno (NUNCA subir)
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.json
+credentials.json
+config.secret.js
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,184 @@
+import * as THREE from 'three';
+import Stats from 'three/addons/libs/stats.module.js';
+import { Octree } from 'three/addons/math/Octree.js';
+import * as CANNON from 'cannon-es';
+import { GAME_CONFIG } from '../config.js';
+import { AssetLoader } from './AssetLoader.js';
+import { StaticPhysicsBuilder } from '../physics/StaticPhysicsBuilder.js';
+import { Player } from '../player/Player.js';
+import { PlayerController } from '../player/PlayerController.js';
+import { ThirdPersonCamera } from '../player/ThirdPersonCamera.js';
+import { DynamicBoxes } from '../objects/DynamicBoxes.js';
+import { ProjectileSystem } from '../weapons/ProjectileSystem.js';
+import { Weapon } from '../weapons/Weapon.js';
+
+export class Game {
+  constructor(container) {
+    this.container = container;
+    this.config = GAME_CONFIG;
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x87bde0);
+    this.scene.fog = new THREE.Fog(0x87bde0, 70, 155);
+
+    this.camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 500);
+    this.camera.position.set(0, 2.3, 5);
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setSize(innerWidth, innerHeight);
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.container.appendChild(this.renderer.domElement);
+
+    this.clock = new THREE.Clock();
+    this.worldOctree = new Octree();
+    this.level = null;
+
+    this.loader = new AssetLoader((pct, url) => {
+      const name = url.includes('/city/') ? 'escenario' : 'arma';
+      this.setLoading(`Cargando ${name}... ${pct}%`);
+    });
+
+    this.physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -20, 0) });
+    this.physicsWorld.allowSleep = true;
+    this.physicsWorld.broadphase = new CANNON.SAPBroadphase(this.physicsWorld);
+
+    this.stats = new Stats();
+    this.stats.dom.style.top = '8px';
+    this.stats.dom.style.left = '8px';
+    this.container.appendChild(this.stats.dom);
+
+    this._animate = this._animate.bind(this);
+    this._onResize = this._onResize.bind(this);
+    this._onClick = this._onClick.bind(this);
+    window.addEventListener('resize', this._onResize);
+    this.renderer.domElement.addEventListener('click', this._onClick);
+  }
+
+  async init() {
+    this._setupLights();
+    this._setupFallbackGround();
+
+    try {
+      const gltf = await this.loader.loadGLTF(this.config.assets.scenario);
+      this.level = gltf.scene;
+      this.level.name = 'StreetCityLevel';
+      this.scene.add(this.level);
+      this.level.updateWorldMatrix(true, true);
+
+      this.worldOctree.fromGraphNode(this.level);
+      this.level.traverse((child) => {
+        if (!child.isMesh) return;
+        child.castShadow = true;
+        child.receiveShadow = true;
+        if (child.material?.map) child.material.map.anisotropy = 4;
+      });
+
+      this.staticPhysicsBody = StaticPhysicsBuilder.buildTrimesh(this.level, this.physicsWorld);
+    } catch (error) {
+      this.setLoading(error.message, true);
+      throw error;
+    }
+
+    this.player = new Player(this.scene, this.worldOctree, this.config.player);
+    this.thirdPersonCamera = new ThirdPersonCamera(this.camera, this.renderer.domElement, this.config.camera);
+    this.thirdPersonCamera.setStaticScene(this.level);
+    this.controller = new PlayerController(this.player, this.thirdPersonCamera);
+
+    this.boxes = new DynamicBoxes(this.scene, this.physicsWorld, this.config.dynamicBoxes);
+    this.player.setDynamicBoxes(this.boxes);
+    this.projectiles = new ProjectileSystem(this.scene, this.worldOctree, this.boxes, this.config.projectiles);
+
+    await this._loadWeapon();
+
+    this.setLoading('Listo. Haz clic en la pantalla para jugar.');
+    setTimeout(() => document.getElementById('loading')?.classList.add('hidden'), 2200);
+    this.renderer.setAnimationLoop(this._animate);
+  }
+
+  async _loadWeapon() {
+    this.weapon = new Weapon(this.player, this.config.weapon);
+
+    if (!this.config.assets.weapon) {
+      this.weapon.createFallback();
+      return;
+    }
+
+    try {
+      const gltf = await this.loader.loadGLTF(this.config.assets.weapon);
+      this.weapon.attachModel(gltf.scene);
+    } catch (error) {
+      console.warn('No se pudo cargar el arma 3D. Se usará una provisional.', error);
+      this.weapon.createFallback();
+    }
+  }
+
+  _setupLights() {
+    const hemi = new THREE.HemisphereLight(0xdaf1ff, 0x405b49, 1.65);
+    this.scene.add(hemi);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    sun.position.set(-18, 28, 14);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -45;
+    sun.shadow.camera.right = 45;
+    sun.shadow.camera.top = 45;
+    sun.shadow.camera.bottom = -45;
+    sun.shadow.camera.near = 0.1;
+    sun.shadow.camera.far = 120;
+    sun.shadow.bias = -0.00015;
+    this.scene.add(sun);
+  }
+
+  _setupFallbackGround() {
+    const body = new CANNON.Body({ mass: 0 });
+    body.addShape(new CANNON.Plane());
+    body.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+    body.position.y = this.config.world.fallbackFloorY;
+    this.physicsWorld.addBody(body);
+  }
+
+  _onClick() {
+    if (!this.player || !this.projectiles || !this.weapon) return;
+
+    const direction = this.thirdPersonCamera.getAimDirection(new THREE.Vector3());
+    const origin = this.weapon.getMuzzleWorldPosition(new THREE.Vector3());
+    this.projectiles.fire(origin, direction, this.player.velocity);
+  }
+
+  _animate() {
+    const dt = Math.min(this.clock.getDelta(), 0.033);
+    this.controller.update(dt);
+
+    const substeps = 3;
+    const step = dt / substeps;
+    for (let i = 0; i < substeps; i++) {
+      this.player.update(step);
+      this.projectiles.update(step);
+      this.physicsWorld.step(1 / 60, step, 3);
+    }
+
+    this.boxes.update();
+    this.thirdPersonCamera.update(this.player.getPosition(new THREE.Vector3()), dt);
+    this.renderer.render(this.scene, this.camera);
+    this.stats.update();
+  }
+
+  _onResize() {
+    this.camera.aspect = innerWidth / innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(innerWidth, innerHeight);
+  }
+
+  setLoading(message, error = false) {
+    const el = document.getElementById('loading');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.toggle('error', error);
+    el.classList.remove('hidden');
+  }
+}
