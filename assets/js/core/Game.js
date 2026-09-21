@@ -38,7 +38,9 @@ export class Game {
     this.level = null;
 
     this.loader = new AssetLoader((pct, url) => {
-      const name = url.includes('/city/') ? 'escenario' : 'arma';
+      let name = 'arma';
+      if (url.includes('/city/') || url.includes('/ruined_city/')) name = 'escenario';
+      else if (url.includes('/character/')) name = 'personaje';
       this.setLoading(`Cargando ${name}... ${pct}%`);
     });
 
@@ -65,7 +67,7 @@ export class Game {
     try {
       const gltf = await this.loader.loadGLTF(this.config.assets.scenario);
       this.level = gltf.scene;
-      this.level.name = 'StreetCityLevel';
+      this.level.name = 'ScenarioLevel';
       this.scene.add(this.level);
       this.level.updateWorldMatrix(true, true);
 
@@ -88,15 +90,77 @@ export class Game {
     this.thirdPersonCamera.setStaticScene(this.level);
     this.controller = new PlayerController(this.player, this.thirdPersonCamera);
 
+    this._placePlayerOnGround();
+
     this.boxes = new DynamicBoxes(this.scene, this.physicsWorld, this.config.dynamicBoxes);
     this.player.setDynamicBoxes(this.boxes);
     this.projectiles = new ProjectileSystem(this.scene, this.worldOctree, this.boxes, this.config.projectiles);
 
+    await this._loadCharacter();
     await this._loadWeapon();
 
     this.setLoading('Listo. Haz clic en la pantalla para jugar.');
     setTimeout(() => document.getElementById('loading')?.classList.add('hidden'), 2200);
     this.renderer.setAnimationLoop(this._animate);
+  }
+
+  async _loadCharacter() {
+    if (!this.config.assets.character) return;
+
+    try {
+      const gltf = await this.loader.loadGLTF(this.config.assets.character);
+      this.player.attachModel(gltf.scene, this.config.character);
+    } catch (error) {
+      console.warn('No se pudo cargar el personaje 3D. Se usará el provisional.', error);
+    }
+  }
+
+  /**
+   * Busca suelo firme bajo el punto de aparición configurado. Cada escenario
+   * tiene su propia altura y distribución, así que en lugar de fijar una Y a
+   * mano se lanza un rayo hacia abajo; si el punto está dentro de un edificio
+   * (sin espacio libre encima) se prueban puntos cercanos en espiral.
+   */
+  _placePlayerOnGround() {
+    const options = this.config.player.autoSpawn;
+    if (!options?.enabled || !this.level) return;
+
+    const [sx, sy, sz] = this.config.player.spawn;
+    const raycaster = new THREE.Raycaster();
+    const down = new THREE.Vector3(0, -1, 0);
+    const origin = new THREE.Vector3();
+
+    const candidates = [[0, 0]];
+    const radius = options.searchRadius ?? 6;
+    for (const r of [radius * 0.5, radius]) {
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        candidates.push([Math.cos(angle) * r, Math.sin(angle) * r]);
+      }
+    }
+
+    for (const [ox, oz] of candidates) {
+      origin.set(sx + ox, sy + options.rayHeight, sz + oz);
+      raycaster.set(origin, down);
+      const hits = raycaster.intersectObject(this.level, true);
+      if (!hits.length) continue;
+
+      const ground = hits[0];
+      // Espacio libre encima del suelo: descarta techos e interiores.
+      const headroom = hits.length > 1
+        ? hits[1].point.y - ground.point.y
+        : Infinity;
+      if (headroom < (options.minHeadroom ?? 2)) continue;
+
+      this.player.setSpawn(
+        origin.x,
+        ground.point.y + this.config.player.capsuleRadius + 0.05,
+        origin.z
+      );
+      return;
+    }
+
+    console.warn('No se encontró suelo bajo el punto de aparición; se usa el valor de config.js.');
   }
 
   async _loadWeapon() {

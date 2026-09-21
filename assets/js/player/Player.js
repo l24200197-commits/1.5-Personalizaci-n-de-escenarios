@@ -16,8 +16,73 @@ export class Player {
     );
     this.velocity = new THREE.Vector3();
     this.onFloor = false;
-    this.visual = this._createPlaceholderCharacter();
+
+    // 'visual' es solo el contenedor que define hacia dónde mira el jugador:
+    // el arma se monta aquí, así que no debe reemplazarse al cargar el modelo.
+    this.visual = new THREE.Group();
+    this.visual.name = 'PlayerVisual';
+    this.placeholder = this._createPlaceholderCharacter();
+    this.visual.add(this.placeholder);
+    this.model = null;
     scene.add(this.visual);
+    this.syncVisual();
+  }
+
+  /**
+   * Sustituye el muñeco provisional por el modelo glTF del personaje.
+   * El modelo se reescala a la estatura indicada y se reposiciona para que
+   * los pies queden en el origen del contenedor.
+   */
+  attachModel(gltfScene, characterConfig = {}) {
+    const {
+      targetHeight = 1.75,
+      yawOffset = 0,
+      yOffset = 0,
+    } = characterConfig;
+
+    const model = gltfScene;
+    model.name = 'PlayerCharacter';
+    model.updateWorldMatrix(true, true);
+
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    if (size.y > 1e-6) model.scale.setScalar(targetHeight / size.y);
+    model.rotation.y = yawOffset;
+    model.updateWorldMatrix(true, true);
+
+    // Apoya el modelo en el suelo y lo centra en X/Z respecto al contenedor.
+    const scaledBox = new THREE.Box3().setFromObject(model);
+    const center = scaledBox.getCenter(new THREE.Vector3());
+    model.position.x -= center.x;
+    model.position.z -= center.z;
+    model.position.y -= scaledBox.min.y;
+    model.position.y += yOffset;
+
+    model.traverse((obj) => {
+      if (!obj.isMesh) return;
+      obj.castShadow = true;
+      obj.receiveShadow = true;
+      if (obj.material?.map) obj.material.map.anisotropy = 4;
+    });
+
+    if (this.placeholder) {
+      this.visual.remove(this.placeholder);
+      this.placeholder.traverse((obj) => {
+        if (!obj.isMesh) return;
+        obj.geometry?.dispose();
+        obj.material?.dispose();
+      });
+      this.placeholder = null;
+    }
+
+    this.visual.add(model);
+    this.model = model;
+  }
+
+  /** Reubica la cápsula y guarda el punto como nuevo origen de reaparición. */
+  setSpawn(x, y, z) {
+    this.config.spawn = [x, y, z];
+    this.reset();
     this.syncVisual();
   }
 
