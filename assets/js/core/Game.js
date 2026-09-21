@@ -9,6 +9,7 @@ import { Player } from '../player/Player.js';
 import { PlayerController } from '../player/PlayerController.js';
 import { ThirdPersonCamera } from '../player/ThirdPersonCamera.js';
 import { DynamicBoxes } from '../objects/DynamicBoxes.js';
+import { BlockTower } from '../objects/BlockTower.js';
 import { ProjectileSystem } from '../weapons/ProjectileSystem.js';
 import { Weapon } from '../weapons/Weapon.js';
 
@@ -47,6 +48,10 @@ export class Game {
     this.physicsWorld = new CANNON.World({ gravity: new CANNON.Vec3(0, -20, 0) });
     this.physicsWorld.allowSleep = true;
     this.physicsWorld.broadphase = new CANNON.SAPBroadphase(this.physicsWorld);
+    // Una pila de cajas necesita más iteraciones del solver que unos objetos
+    // sueltos; con el valor por defecto (10) la torre tiembla y se desmorona.
+    this.physicsWorld.solver.iterations = 16;
+    this.physicsWorld.defaultContactMaterial.friction = 0.5;
 
     this.stats = new Stats();
     this.stats.dom.style.top = '8px';
@@ -96,6 +101,8 @@ export class Game {
     this.player.setDynamicBoxes(this.boxes);
     this.projectiles = new ProjectileSystem(this.scene, this.worldOctree, this.boxes, this.config.projectiles);
 
+    this._buildTower();
+
     await this._loadCharacter();
     await this._loadWeapon();
 
@@ -121,18 +128,24 @@ export class Game {
    * mano se lanza un rayo hacia abajo; si el punto está dentro de un edificio
    * (sin espacio libre encima) se prueban puntos cercanos en espiral.
    */
-  _placePlayerOnGround() {
-    const options = this.config.player.autoSpawn;
-    if (!options?.enabled || !this.level) return;
+  /**
+   * Busca suelo despejado bajo un punto. Lanza un rayo hacia abajo y, si ese
+   * punto está dentro de un edificio (sin altura libre encima), prueba puntos
+   * cercanos en espiral. Devuelve el punto sobre el suelo o null.
+   */
+  _findGroundPoint(x, z, options = {}) {
+    if (!this.level) return null;
 
-    const [sx, sy, sz] = this.config.player.spawn;
+    const rayHeight = options.rayHeight ?? 40;
+    const minHeadroom = options.minHeadroom ?? 2;
+    const searchRadius = options.searchRadius ?? 6;
+
     const raycaster = new THREE.Raycaster();
     const down = new THREE.Vector3(0, -1, 0);
     const origin = new THREE.Vector3();
 
     const candidates = [[0, 0]];
-    const radius = options.searchRadius ?? 6;
-    for (const r of [radius * 0.5, radius]) {
+    for (const r of [searchRadius * 0.5, searchRadius]) {
       for (let i = 0; i < 8; i++) {
         const angle = (i / 8) * Math.PI * 2;
         candidates.push([Math.cos(angle) * r, Math.sin(angle) * r]);
@@ -140,27 +153,80 @@ export class Game {
     }
 
     for (const [ox, oz] of candidates) {
-      origin.set(sx + ox, sy + options.rayHeight, sz + oz);
+      origin.set(x + ox, rayHeight, z + oz);
       raycaster.set(origin, down);
       const hits = raycaster.intersectObject(this.level, true);
       if (!hits.length) continue;
 
       const ground = hits[0];
-      // Espacio libre encima del suelo: descarta techos e interiores.
-      const headroom = hits.length > 1
-        ? hits[1].point.y - ground.point.y
-        : Infinity;
-      if (headroom < (options.minHeadroom ?? 2)) continue;
+      const headroom = hits.length > 1 ? hits[1].point.y - ground.point.y : Infinity;
+      if (headroom < minHeadroom) continue;
 
-      this.player.setSpawn(
-        origin.x,
-        ground.point.y + this.config.player.capsuleRadius + 0.05,
-        origin.z
-      );
+      return new THREE.Vector3(origin.x, ground.point.y, origin.z);
+    }
+    return null;
+  }
+
+  _placePlayerOnGround() {
+    const options = this.config.player.autoSpawn;
+    if (!options?.enabled) return;
+
+    const [sx, , sz] = this.config.player.spawn;
+    const point = this._findGroundPoint(sx, sz, options);
+    if (!point) {
+      console.warn('No se encontró suelo bajo el punto de aparición; se usa el valor de config.js.');
+      return;
+    }
+    this.player.setSpawn(
+      point.x,
+      point.y + this.config.player.capsuleRadius + 0.05,
+      point.z
+    );
+
+    // El plano de respaldo estaba a una altura fija muy por debajo de la calle.
+    // Como cannon-es no resuelve Box↔Trimesh, las cajas caen hasta él: si queda
+    // hundido, cualquier caja desviada desaparece bajo el pavimento. Alinearlo
+    // con la calle real las deja apoyadas a la vista.
+    if (this.fallbackGroundBody) {
+      this.fallbackGroundBody.position.y = point.y;
+    }
+  }
+
+  /**
+   * Levanta la torre de bloques derribable. Por defecto se coloca enfrente del
+   * jugador (que aparece mirando hacia -Z), apoyada sobre el suelo real.
+   */
+  _buildTower() {
+    const options = this.config.tower;
+    if (!options?.enabled) return;
+
+    let baseX;
+    let baseZ;
+    if (options.position) {
+      [baseX, , baseZ] = options.position;
+    } else {
+      const [sx, , sz] = this.config.player.spawn;
+      const [ox, , oz] = options.offsetFromSpawn;
+      baseX = sx + ox;
+      baseZ = sz + oz;
+    }
+
+    const ground = this._findGroundPoint(baseX, baseZ, options);
+    if (!ground) {
+      console.warn('No se encontró un sitio despejado para la torre; no se creó.');
       return;
     }
 
-    console.warn('No se encontró suelo bajo el punto de aparición; se usa el valor de config.js.');
+    this.tower = new BlockTower(this.scene, this.physicsWorld, options);
+    const count = this.tower.build(ground);
+
+    this.projectiles.addImpactTarget(this.tower);
+    this.player.addCollisionProvider(this.tower);
+
+    console.info(
+      `Torre de bloques: ${count} bloques en ` +
+      `(${ground.x.toFixed(2)}, ${ground.y.toFixed(2)}, ${ground.z.toFixed(2)}).`
+    );
   }
 
   async _loadWeapon() {
@@ -204,6 +270,7 @@ export class Game {
     body.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     body.position.y = this.config.world.fallbackFloorY;
     this.physicsWorld.addBody(body);
+    this.fallbackGroundBody = body;
   }
 
   _onClick() {
@@ -227,6 +294,7 @@ export class Game {
     }
 
     this.boxes.update();
+    this.tower?.update();
     this.thirdPersonCamera.update(this.player.getPosition(new THREE.Vector3()), dt);
     this.renderer.render(this.scene, this.camera);
     this.stats.update();

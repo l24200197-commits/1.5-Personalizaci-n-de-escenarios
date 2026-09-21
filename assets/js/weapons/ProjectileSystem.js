@@ -5,6 +5,9 @@ export class ProjectileSystem {
     this.scene = scene;
     this.worldOctree = worldOctree;
     this.dynamicBoxes = dynamicBoxes;
+    // Todo objeto con applyProjectileImpact(point, velocity, radius) puede
+    // recibir disparos: cajas sueltas, torre de bloques, lo que se agregue.
+    this.impactTargets = dynamicBoxes ? [dynamicBoxes] : [];
     this.config = config;
     this.index = 0;
     this.lastShot = 0;
@@ -25,6 +28,10 @@ export class ProjectileSystem {
         active: false,
       };
     });
+  }
+
+  addImpactTarget(target) {
+    if (target && !this.impactTargets.includes(target)) this.impactTargets.push(target);
   }
 
   fire(origin, direction, inheritedVelocity = new THREE.Vector3()) {
@@ -55,8 +62,19 @@ export class ProjectileSystem {
       p.collider.center.addScaledVector(p.velocity, dt);
       p.velocity.y -= this.config.gravity * dt;
 
-      if (this.dynamicBoxes.applyProjectileImpact(p.collider.center, p.velocity, p.collider.radius)) {
-        p.velocity.multiplyScalar(0.3);
+      // El proyectil se consume al impactar. Antes solo se frenaba, así que
+      // seguía dentro de la caja y le aplicaba un impulso nuevo en cada
+      // subpaso, multiplicando la fuerza real del disparo.
+      let consumed = false;
+      for (const target of this.impactTargets) {
+        if (target.applyProjectileImpact(p.collider.center, p.velocity, p.collider.radius)) {
+          consumed = true;
+          break;
+        }
+      }
+      if (consumed) {
+        this._deactivate(p);
+        continue;
       }
 
       const hit = this.worldOctree.sphereIntersect(p.collider);

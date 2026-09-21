@@ -7,6 +7,7 @@ export class Player {
     this.worldOctree = worldOctree;
     this.config = config;
     this.dynamicBoxes = null;
+    this.collisionProviders = [];
 
     const [sx, sy, sz] = config.spawn;
     this.collider = new Capsule(
@@ -88,6 +89,15 @@ export class Player {
 
   setDynamicBoxes(dynamicBoxes) {
     this.dynamicBoxes = dynamicBoxes;
+    this.addCollisionProvider(dynamicBoxes);
+  }
+
+  /** Cualquier objeto con resolvePlayer() puede frenar y ser empujado por el jugador. */
+  addCollisionProvider(provider) {
+    if (!this.collisionProviders) this.collisionProviders = [];
+    if (provider && !this.collisionProviders.includes(provider)) {
+      this.collisionProviders.push(provider);
+    }
   }
 
   _createPlaceholderCharacter() {
@@ -185,10 +195,12 @@ export class Player {
   }
 
   _resolveDynamicCollisions() {
-    if (!this.dynamicBoxes) return;
+    if (!this.collisionProviders.length) return;
     const before = this.getPosition(new THREE.Vector3());
     const corrected = before.clone();
-    this.dynamicBoxes.resolvePlayer(corrected, this.velocity, this.config.capsuleRadius, 1.75);
+    for (const provider of this.collisionProviders) {
+      provider.resolvePlayer(corrected, this.velocity, this.config.capsuleRadius, 1.75);
+    }
     const correction = corrected.sub(before);
     if (correction.lengthSq() > 0) this.collider.translate(correction);
   }

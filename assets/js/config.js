@@ -61,6 +61,53 @@ export const GAME_CONFIG = {
     lifetime: 5,
     cooldownMs: 240,
   },
+  tower: {
+    enabled: true,
+    // Posición de la torre. Por defecto se coloca enfrente del jugador: el
+    // jugador aparece mirando hacia -Z, así que este desplazamiento la deja a
+    // la vista al iniciar, sin caer encima del punto de aparición.
+    offsetFromSpawn: [0, 0, -7],
+    // Para fijarla en coordenadas absolutas del escenario, pon aquí [x, y, z]
+    // y se ignorará offsetFromSpawn. La Y se recalcula sobre el suelo real.
+    position: null,
+    // Bloques por nivel, de abajo hacia arriba. Total actual: 16 bloques.
+    rows: [4, 4, 3, 3, 2],
+    // Proporciones de torre: 2.78 m de alto por 1.92 de ancho. Con bloques más
+    // anchos el conjunto resultaba más ancho que alto (un muro) y no volcaba.
+    blockWidth: 0.45,
+    blockHeight: 0.55,
+    blockDepth: 0.5,
+    // Holgura horizontal entre bloques para que no nazcan interpenetrados.
+    spacing: 0.04,
+    // Holgura vertical: deliberadamente mínima, para que la torre se asiente
+    // en vez de caer desde varios centímetros y desmoronarse al cargar.
+    verticalSpacing: 0.005,
+    mass: 1.5,
+    friction: 0.4,
+    restitution: 0.02,
+    groundFriction: 0.6,
+    linearDamping: 0.08,
+    angularDamping: 0.14,
+    // --- Fuerza de los disparos sobre la torre ---
+    // El impacto actúa como onda expansiva: empuja todos los bloques dentro de
+    // blastRadius con caída lineal. Subir impactDeltaV o blastRadius para
+    // derribarla más fácil; bajarlos para que cueste más.
+    // Cambio de velocidad (m/s) que recibe un bloque en el centro del impacto.
+    impactDeltaV: 11,
+    // Radio de la onda en metros.
+    blastRadius: 1.25,
+    // Reparto entre la dirección del proyectil (1) y la radial desde el
+    // impacto (0). 0.55 conserva la dirección del disparo y a la vez dispersa.
+    forwardShare: 0.55,
+    // Margen de la losa estática invisible que sostiene la torre. Conviene que
+    // sea amplio: los bloques que salgan despedidos siguen teniendo suelo bajo
+    // ellos en vez de atravesar la calle.
+    padMargin: 3.0,
+    // Búsqueda del suelo, igual que el punto de aparición del jugador.
+    rayHeight: 40,
+    minHeadroom: 3.5,
+    searchRadius: 5,
+  },
   dynamicBoxes: {
     size: 0.65,
     count: 12,

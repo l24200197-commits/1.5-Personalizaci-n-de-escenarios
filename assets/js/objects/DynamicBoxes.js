@@ -62,9 +62,12 @@ export class DynamicBoxes {
       const dz = point.z - item.body.position.z;
       if ((dx * dx + dy * dy + dz * dz) <= hitRadius * hitRadius) {
         item.body.wakeUp();
+        // applyImpulse espera el punto RELATIVO al centro de masa. Aquí se
+        // pasaba la posición absoluta del mundo, lo que disparaba el brazo de
+        // palanca y hacía girar la caja de forma irreal.
         item.body.applyImpulse(
           new CANNON.Vec3(velocity.x * 0.2, velocity.y * 0.2, velocity.z * 0.2),
-          new CANNON.Vec3(point.x, point.y, point.z)
+          new CANNON.Vec3(dx, dy, dz)
         );
         return true;
       }
@@ -110,7 +113,7 @@ export class DynamicBoxes {
           0.12,
           nz * (1.6 + Math.abs(playerVelocity.z) * 0.35)
         ),
-        item.body.position
+        new CANNON.Vec3(0, -this.size * 0.25, 0)
       );
     }
   }
