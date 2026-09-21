@@ -58,9 +58,14 @@ export class Game {
     this.stats.dom.style.left = '8px';
     this.container.appendChild(this.stats.dom);
 
+    // Escala de tiempo: la cámara lenta sirve para ver el impacto de la bala.
+    this.timeScale = 1;
+
     this._animate = this._animate.bind(this);
     this._onResize = this._onResize.bind(this);
     this._onClick = this._onClick.bind(this);
+    this._onKeyDown = this._onKeyDown.bind(this);
+    window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('resize', this._onResize);
     this.renderer.domElement.addEventListener('click', this._onClick);
   }
@@ -86,7 +91,9 @@ export class Game {
 
       // Colisionadores de caja: son los que realmente detienen a las cajas
       // dinámicas, porque cannon-es no resuelve Box<->Trimesh.
-      const colliders = StaticPhysicsBuilder.buildBoxColliders(this.level, this.physicsWorld);
+      const colliders = StaticPhysicsBuilder.buildColumnColliders(this.level, this.physicsWorld, {
+        cellSize: this.config.world.colliderCellSize,
+      });
       this.levelColliderBoxes = colliders.boxes;
 
       // El Trimesh solo sirve para cuerpos de esfera, y este proyecto no tiene
@@ -150,38 +157,85 @@ export class Game {
     const rayHeight = options.rayHeight ?? 40;
     const minHeadroom = options.minHeadroom ?? 2;
     const searchRadius = options.searchRadius ?? 6;
+    const referenceY = options.referenceY ?? null;
+    const maxStepFromReference = options.maxStepFromReference ?? 1.5;
+    const footprint = options.footprint ?? null;
+    const flatTolerance = options.flatTolerance ?? 0.08;
 
     const raycaster = new THREE.Raycaster();
     const down = new THREE.Vector3(0, -1, 0);
+    const up = new THREE.Vector3(0, 1, 0);
     const origin = new THREE.Vector3();
 
+    // Altura de la superficie que se pisa en un punto: el PRIMER impacto del
+    // rayo que baja, que es la más alta. Tomar la más baja metía las cosas
+    // debajo del escombro y la física las expulsaba hacia arriba: eso es lo que
+    // hacía que los bloques quedaran flotando.
+    const surfaceAt = (px, pz) => {
+      origin.set(px, rayHeight, pz);
+      raycaster.set(origin, down);
+      raycaster.far = Infinity;
+      const hits = raycaster.intersectObject(this.level, true);
+      return hits.length ? hits[0].point.y : null;
+    };
+
     const candidates = [[0, 0]];
-    for (const r of [searchRadius * 0.5, searchRadius]) {
-      for (let i = 0; i < 8; i++) {
-        const angle = (i / 8) * Math.PI * 2;
+    for (const ring of [0.35, 0.7, 1, 1.5, 2, 2.6]) {
+      const r = searchRadius * ring;
+      for (let i = 0; i < 16; i++) {
+        const angle = (i / 16) * Math.PI * 2;
         candidates.push([Math.cos(angle) * r, Math.sin(angle) * r]);
       }
     }
 
+    let best = null;
+
     for (const [ox, oz] of candidates) {
-      origin.set(x + ox, rayHeight, z + oz);
-      raycaster.set(origin, down);
-      const hits = raycaster.intersectObject(this.level, true);
-      if (!hits.length) continue;
+      const px = x + ox;
+      const pz = z + oz;
 
-      const ground = hits[0];
-      const headroom = hits.length > 1 ? hits[1].point.y - ground.point.y : Infinity;
-      if (headroom < minHeadroom) continue;
+      // Sondas sobre toda la huella: el suelo debe ser plano, si no la base
+      // queda a medio apoyar y la torre se desploma o flota en un escalón.
+      let low = Infinity;
+      let high = -Infinity;
+      let valid = true;
 
-      const point = new THREE.Vector3(origin.x, ground.point.y, origin.z);
-      // El rayo mide hueco libre sobre el suelo, pero los colisionadores son
-      // cajas envolventes: una esquina en L puede cubrir calle despejada. Si el
-      // volumen que se va a ocupar choca con uno, este sitio no sirve.
+      if (footprint) {
+        for (const dx of [-footprint.width / 2, 0, footprint.width / 2]) {
+          for (const dz of [-footprint.depth / 2, 0, footprint.depth / 2]) {
+            const y = surfaceAt(px + dx, pz + dz);
+            if (y === null) { valid = false; break; }
+            if (y < low) low = y;
+            if (y > high) high = y;
+          }
+          if (!valid) break;
+        }
+      } else {
+        const y = surfaceAt(px, pz);
+        if (y === null) valid = false;
+        else { low = y; high = y; }
+      }
+
+      if (!valid) continue;
+      if (high - low > flatTolerance) continue;
+      if (referenceY !== null && Math.abs(high - referenceY) > maxStepFromReference) continue;
+
+      // Hueco libre por encima: descarta soportales, techos y entrepisos.
+      origin.set(px, high + 0.15, pz);
+      raycaster.set(origin, up);
+      raycaster.far = minHeadroom;
+      if (raycaster.intersectObject(this.level, true).length) continue;
+
+      const point = new THREE.Vector3(px, high, pz);
       if (clearance && this._isBlocked(point, clearance)) continue;
 
-      return point;
+      // Entre los válidos gana el más plano; a igual planitud, el más cercano.
+      const score = (high - low) * 100 + Math.hypot(ox, oz);
+      if (!best || score < best.score) best = { point, score };
+      if (best.score < 0.5) break;
     }
-    return null;
+
+    return best ? best.point : null;
   }
 
   /**
@@ -194,7 +248,16 @@ export class Game {
     const columns = 4;
     const spot = this._findGroundPoint(
       ox, oz,
-      { rayHeight: 40, minHeadroom: 2.5, searchRadius: 6 },
+      {
+        rayHeight: 40,
+        minHeadroom: 2.5,
+        searchRadius: 5,
+        referenceY: this.groundReferenceY ?? null,
+        footprint: {
+          width: columns * (config.size + 0.06),
+          depth: config.size,
+        },
+      },
       {
         width: columns * (config.size + 0.06) + 0.4,
         depth: config.size + 0.4,
@@ -245,6 +308,9 @@ export class Game {
     if (this.fallbackGroundBody) {
       this.fallbackGroundBody.position.y = point.y;
     }
+
+    // Nivel de calle de referencia: lo demás debe colocarse a esta altura.
+    this.groundReferenceY = point.y;
   }
 
   /**
@@ -273,7 +339,15 @@ export class Game {
       height: options.rows.length * (options.blockHeight + options.verticalSpacing) + 0.3,
     };
 
-    const ground = this._findGroundPoint(baseX, baseZ, options, clearance);
+    const ground = this._findGroundPoint(
+      baseX, baseZ,
+      {
+        ...options,
+        referenceY: this.groundReferenceY ?? null,
+        footprint: { width: clearance.width, depth: clearance.depth },
+      },
+      clearance
+    );
     if (!ground) {
       console.warn('No se encontró un sitio despejado para la torre; no se creó.');
       return;
@@ -335,6 +409,26 @@ export class Game {
     this.fallbackGroundBody = body;
   }
 
+  _onKeyDown(event) {
+    if (event.code === 'KeyC') {
+      const free = this.thirdPersonCamera?.toggleLook();
+      this.setHint(free ? 'Cámara libre' : 'Cámara fija · el mouse ya no gira la vista');
+    }
+    if (event.code === 'KeyT') {
+      this.timeScale = this.timeScale === 1 ? 0.25 : 1;
+      this.setHint(this.timeScale === 1 ? 'Velocidad normal' : 'Cámara lenta 1/4');
+    }
+  }
+
+  setHint(message) {
+    const el = document.getElementById('hint');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.add('visible');
+    clearTimeout(this._hintTimer);
+    this._hintTimer = setTimeout(() => el.classList.remove('visible'), 1800);
+  }
+
   _onClick() {
     if (!this.player || !this.projectiles || !this.weapon) return;
 
@@ -344,7 +438,7 @@ export class Game {
   }
 
   _animate() {
-    const dt = Math.min(this.clock.getDelta(), 0.033);
+    const dt = Math.min(this.clock.getDelta(), 0.033) * this.timeScale;
     this.controller.update(dt);
 
     const substeps = 3;

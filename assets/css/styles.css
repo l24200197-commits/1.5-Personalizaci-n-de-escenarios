@@ -192,3 +192,27 @@ button {
     color: #9ee7b3;
     font-size: 11px;
 }
+
+#hint {
+    position: absolute;
+    left: 50%;
+    bottom: 84px;
+    transform: translateX(-50%) translateY(6px);
+    padding: 8px 15px;
+    border: 1px solid rgba(143, 225, 255, 0.35);
+    border-radius: 999px;
+    background: rgba(10, 15, 25, 0.78);
+    color: #dff6ff;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease, transform .25s ease;
+}
+
+#hint.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}

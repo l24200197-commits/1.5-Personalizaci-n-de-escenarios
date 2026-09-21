@@ -57,7 +57,11 @@ export class BlockTower {
   /** Construye la losa de apoyo y todos los bloques sobre el punto indicado. */
   build(basePosition) {
     this.basePosition.copy(basePosition);
-    this._createSupportPad(basePosition);
+    // La losa de apoyo era necesaria cuando el escenario solo tenía un Trimesh,
+    // que no frena cajas. Ahora la calle tiene su propio colisionador de caja,
+    // así que sobra: una losa invisible mal colocada es justo lo que deja la
+    // torre flotando. Queda como respaldo opcional.
+    if (this.config.supportPad) this._createSupportPad(basePosition);
 
     const { rows, blockWidth, blockHeight, spacing, verticalSpacing } = this.config;
     const stepX = blockWidth + spacing;

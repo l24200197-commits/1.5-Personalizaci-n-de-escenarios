@@ -13,6 +13,9 @@ export class ThirdPersonCamera {
     this.offset = new THREE.Vector3();
     this.raycaster = new THREE.Raycaster();
     this.staticScene = null;
+    // Con la cámara fija se puede disparar y seguir la trayectoria de la bala
+    // sin que la vista se mueva al mover el mouse.
+    this.lookEnabled = true;
 
     this._onMouseMove = this._onMouseMove.bind(this);
     this._onWheel = this._onWheel.bind(this);
@@ -33,7 +36,13 @@ export class ThirdPersonCamera {
     }
   }
 
+  toggleLook() {
+    this.lookEnabled = !this.lookEnabled;
+    return this.lookEnabled;
+  }
+
   _onMouseMove(event) {
+    if (!this.lookEnabled) return;
     if (document.pointerLockElement !== this.domElement) return;
     this.yaw -= event.movementX * this.config.sensitivity;
     this.pitch -= event.movementY * this.config.sensitivity;

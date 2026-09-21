@@ -13,6 +13,9 @@ export const GAME_CONFIG = {
     // cientos de miles de triángulos por nada. Actívalo solo si algún día se
     // agregan cuerpos esféricos reales.
     trimeshCollider: false,
+    // Tamaño de celda de los colisionadores del escenario. Más pequeño = muros
+    // más fieles pero más cuerpos que calcular.
+    colliderCellSize: 1.0,
   },
   player: {
     walkSpeed: 5.5,
@@ -78,7 +81,7 @@ export const GAME_CONFIG = {
     // Posición de la torre. Por defecto se coloca enfrente del jugador: el
     // jugador aparece mirando hacia -Z, así que este desplazamiento la deja a
     // la vista al iniciar, sin caer encima del punto de aparición.
-    offsetFromSpawn: [0, 0, -7],
+    offsetFromSpawn: [2, 0, -3.5],
     // Para fijarla en coordenadas absolutas del escenario, pon aquí [x, y, z]
     // y se ignorará offsetFromSpawn. La Y se recalcula sobre el suelo real.
     position: null,
@@ -111,14 +114,17 @@ export const GAME_CONFIG = {
     // Reparto entre la dirección del proyectil (1) y la radial desde el
     // impacto (0). 0.55 conserva la dirección del disparo y a la vez dispersa.
     forwardShare: 0.55,
-    // Margen de la losa estática invisible que sostiene la torre. Conviene que
-    // sea amplio: los bloques que salgan despedidos siguen teniendo suelo bajo
-    // ellos en vez de atravesar la calle.
+    // Losa estática invisible bajo la torre. Ya no hace falta, porque la calle
+    // tiene su propio colisionador: actívala solo si desactivas los
+    // colisionadores de caja del escenario.
+    supportPad: false,
     padMargin: 3.0,
     // Búsqueda del suelo, igual que el punto de aparición del jugador.
     rayHeight: 40,
-    minHeadroom: 3.5,
-    searchRadius: 5,
+    minHeadroom: 3.2,
+    searchRadius: 4,
+    // Desnivel máximo tolerado bajo la base, en metros.
+    flatTolerance: 0.08,
   },
   dynamicBoxes: {
     size: 0.65,
